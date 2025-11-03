@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ...
 
+## 2025-11-03
+
+Added a bunch of WooCommerce patches to disable telemetry and reduce ajax callbacks.
+
 ## [1.3.0] - 2024-11-13
 
 Added the -m | --maintenance switch so the tool will put the site into maintenance mode before patching. If you're calling the tool from a script, your site might already be in maintenance mode so you don't need to pass this switch. But if you call the tool manually from the command-line, it's advisable to pass this switch into wpatcher.
