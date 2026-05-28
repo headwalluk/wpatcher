@@ -1,92 +1,51 @@
 # WPatcher
 
-A tool for patching and unpatching WordPress plugins and themes.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.3.0-green.svg)](CHANGELOG.md)
+[![Made with Bash](https://img.shields.io/badge/made%20with-Bash-1f425f.svg)](wpatch.sh)
+[![Requires wp-cli](https://img.shields.io/badge/requires-wp--cli-blueviolet.svg)](https://wp-cli.org/)
 
-This was born out of a need to be able to apply small patches to some plugins. Usually to limit outgoing HTTP API connections that drag-down performance for the website owner and/or their clients. It's also useful if you've got some abandoned plugins across your hosting landscape and you want to maintain some simple patches, without forking the abandoned plugins into new projects.
+A tool for applying and reverting small source-level patches to WordPress plugins and themes.
+
+It was born out of a need to apply light patches to plugins — usually to limit outgoing HTTP API calls that drag down performance for site owners and their clients. It's also handy when you have abandoned plugins across a hosting estate and want to maintain simple fixes without forking them into full projects.
+
+WPatcher is designed for **temporary, defensible fixes** — disabling telemetry, reducing AJAX chatter, improving caching — typically held in place until a plugin developer ships a proper fix. It is **not** for nullifying or cracking plugins.
+
+## How it works, in one breath
+
+WPatcher uses [wp-cli](https://wp-cli.org/) to find the active plugins/themes on a site, looks for a version-matched `.patch` file for each, and swaps the live component directory for a patched copy — keeping the pristine original so it can cleanly revert at any time.
 
 ## Quick start
 
-### Install command-line tools
-
-Make sure you've got a working version of [wp-cli](https://github.com/wp-cli/wp-cli)
-
-Install some prerequisites...
-
 ```bash
-# Debian / Ubuntu / Mint / etc...
-sudo apt install patch tar ncurses-bin wget
-```
-
-
-### Install / update the tool
-```bash
-# Pull the installer script and execute it.
-# NOTE: The script installs the tool to /usr/local/bin/wpatch
+# Install to /usr/local/bin/wpatch
 source <(curl -s https://raw.githubusercontent.com/headwalluk/wpatcher/refs/heads/main/install-wpatcher.sh)
 
-# Update definitions (if you're not using your own local wpatches dir)
+# Pull the latest patch definitions
 wpatch update
 
-# Check it works
-wpatch -h
+# Back up a site's components, then patch
+wpatch -p /var/www/example.com/htdocs backup
+wpatch -p /var/www/example.com/htdocs -m patch
 ```
 
-Backup your site's plugins
+See **[docs/installation.md](docs/installation.md)** for the full setup, including prerequisites.
 
-```bash
-wpatch -p /var/wexample.com/htdocs backup
-```
+## Documentation
 
-WPatcher usses ${HOME}/.wpatcher/ as its work directory and local repository. If you use the "backup" command to backup all your site's plugins & themes, the are stored in here.
+Pick the guide that matches what you're doing:
 
-If you decide to delete ${HOME}/.wpatcher/ for any reason, you might consider having a look in ${HOME}/.wpatcher/repos/ before you do so.
+- **[Installation](docs/installation.md)** — install the tool and its prerequisites, for self-hosters running one or a few sites.
+- **[Configuration](docs/configuration.md)** — `/etc/wpatcher.conf`, work directories, and pointing WPatcher at your own patch collection.
+- **[Commands reference](docs/commands-reference.md)** — every command and flag (`patch`, `unpatch`, `backup`, `update`, `dump`).
+- **[Fleet operations](docs/fleet-operations.md)** — running WPatcher unattended across many sites from overnight tooling (the 300+ site use case).
+- **[Patching WooCommerce](docs/patching-woocommerce.md)** — for store owners and web designers who want to debloat and speed up WooCommerce.
+- **[Authoring patches](docs/authoring-patches.md)** — for developers writing and maintaining their own patch definitions.
 
+## Recommended patches
 
-## Examples
+The most successful real-world patch set we run is **[woocommerce-debloat](https://github.com/headwalluk/woocommerce-debloat)** — a maintained collection that strips telemetry and unnecessary callbacks from WooCommerce. See [Patching WooCommerce](docs/patching-woocommerce.md) for how to use it with WPatcher.
 
-Patch all plugins that can be patched
+## License
 
-```bash
-wpatch --path /var/www/example.com/htdocs patch
-```
-
-Patch a single plugin
-
-```bash
-wpatch --path /var/www/example.com/htdocs --component woocommerce patch
-```
-
-Revert all patches
-
-```bash
-wpatch --path /var/www/example.com/htdocs unpatch
-```
-
-Use your own local collection of patches
-
-Create a file system like this:
-
-* /opt/my-wp-patches/
-	* themes/
-		* astra/
-			* astra-4.8.0.patch
-			* astra-4.8.1.patch
-	* plugins/
-		* my-plugin/
-			* my-plugin-1.0.0.patch
-			* my-plugin-1.0.1.patch
-			* my-plugin-1.0.2.patch
-		* woocommerce/
-			* woocommerce-9.3.2.patch
-			* woocommerce-9.3.3.patch
-
-```bash
-# Backup all your plugins to your local repository
-wpatch --path /var/www/my-website.com/htdocs backup
-
-# Apply all patches from your patches dir that are applicable to this site.
-wpatch -d /opt/my-wp-patches/ --path /var/www/my-website.com/htdocs patch
-
-## Unpatch everything.
-wpatch -d /opt/my-wp-patches/ --path /var/www/my-website.com/htdocs unpatch
-```
+[MIT](LICENSE) © headwalluk
