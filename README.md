@@ -1,7 +1,7 @@
 # WPatcher
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.3.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.4.0-green.svg)](CHANGELOG.md)
 [![Made with Bash](https://img.shields.io/badge/made%20with-Bash-1f425f.svg)](wpatch.sh)
 [![Requires wp-cli](https://img.shields.io/badge/requires-wp--cli-blueviolet.svg)](https://wp-cli.org/)
 
@@ -37,7 +37,7 @@ Pick the guide that matches what you're doing:
 
 - **[Installation](docs/installation.md)** — install the tool and its prerequisites, for self-hosters running one or a few sites.
 - **[Configuration](docs/configuration.md)** — `/etc/wpatcher.conf`, work directories, and pointing WPatcher at your own patch collection.
-- **[Commands reference](docs/commands-reference.md)** — every command and flag (`patch`, `unpatch`, `backup`, `update`, `dump`).
+- **[Commands reference](docs/commands-reference.md)** — every command and flag (`patch`, `unpatch`, `backup`, `list`, `update`, `dump`).
 - **[Fleet operations](docs/fleet-operations.md)** — running WPatcher unattended across many sites from overnight tooling (the 300+ site use case).
 - **[Patching WooCommerce](docs/patching-woocommerce.md)** — for store owners and web designers who want to debloat and speed up WooCommerce.
 - **[Authoring patches](docs/authoring-patches.md)** — for developers writing and maintaining their own patch definitions.

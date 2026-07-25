@@ -66,3 +66,42 @@ wpatch -p "$SITE_ROOT" unpatch
 ```
 
 Guard `WORK_DIR/repos/` accordingly: it holds the only clean backups of patched components.
+
+## Auditing what a server is holding
+
+`list` reads the local repository only — no site, no wp-cli, no `-p`. That makes it cheap to run
+across the fleet to see what each server has accumulated:
+
+```bash
+# Human-readable, on one server
+wpatch list
+
+# Per-server totals, for a fleet sweep
+for SERVER_NAME in server1 server2 server3; do
+  ssh "${SERVER_NAME}" 'wpatch list --format=json' \
+    | jq -r --arg SERVER "${SERVER_NAME}" \
+        '"\($SERVER): \(.totals.backups) backups, \(.totals.slugs) slugs, \(.totals.bytes / 1048576 | floor)MB"'
+done
+```
+
+Both `csv` and `json` send the banner lines to stderr, so stdout is safe to pipe. `json` carries
+the totals in the document, which saves re-deriving them per server; `csv` is the lighter option
+if you're just feeding `cut`/`awk`.
+
+Two things worth watching for:
+
+- **`repos/` only ever grows.** Every distinct plugin version you back up stays forever, and busy
+  plugins turn over fast — a long-running server can easily hold dozens of WooCommerce versions
+  and hundreds of megabytes. There's no pruning command yet, so audit and clear out by hand:
+
+  ```bash
+  # Biggest slugs by total bytes held
+  wpatch list --format=json \
+    | jq -r '.components | group_by(.slug)[]
+             | "\([.[].bytes] | add)\t\(.[0].slug)\t\(length) versions"' \
+    | sort -rn | head
+  ```
+
+- **`PATCH` reflects your current patch collection.** A backup showing `no` is one you hold with
+  no patch to apply — usually a version the fleet has moved past. Those are the safest prune
+  candidates, but check nothing is still running that version first.

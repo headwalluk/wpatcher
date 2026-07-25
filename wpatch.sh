@@ -3,8 +3,8 @@
 ##
 # wpatch.sh
 #
-# Version: 1.3.0
-# Date: 2024-11-13
+# Version: 1.4.0
+# Date: 2026-07-25
 # Project URI: https://github.com/headwalluk/wpatcher
 # Author: Paul Faulkner
 # Author URI: https://headwall-hosting.com/
@@ -34,6 +34,13 @@ IS_THEMES_SUPPORT_ENABLAED=0
 
 USE_MAINTENANCE_MODE=0
 
+# Was -t/--type given explicitly? The "list" command shows every component type
+# unless the caller asked for one, but REQUESTED_COMPONENT_TYPE always gets a
+# default, so we can't tell the two apart without this.
+IS_COMPONENT_TYPE_EXPLICIT=0
+
+OUTPUT_FORMAT=table
+
 GIT_REPOS=https://github.com/headwalluk/wpatcher.git
 
 CONFIG_FILE_NAME=/etc/wpatcher.conf
@@ -56,7 +63,9 @@ REQUIRED_BINARIES=('patch' 'tar' 'wp' 'tput' 'git')
 
 COMPONENT_TYPES=('plugins' 'themes')
 
-VALID_COMMANDS=('patch' 'unpatch' 'backup' 'update' 'dump')
+VALID_COMMANDS=('patch' 'unpatch' 'backup' 'update' 'dump' 'list')
+
+VALID_OUTPUT_FORMATS=('table' 'csv' 'json')
 
 # .	Colour
 # 0	Black
@@ -97,6 +106,9 @@ function show_usage_then_exit() {
   echo "   ${BIN} -p /var/www/example.com/htdocs --force -c woocommerce patch"
   echo "   ${BIN} -p /var/www/example.com/htdocs unpatch"
   echo "   ${BIN} -p /var/www/example.com/htdocs -c woocommerce unpatch"
+  echo "   ${BIN} list                      (no site needed - reads the local repository)"
+  echo "   ${BIN} list -c woocommerce"
+  echo "   ${BIN} list --format=json"
   echo "   WP_ROOT=/home/me/htdocs ${BIN} patch"
   echo "   WP_ROOT=/home/me/htdocs ${BIN} -d ~/my-wp-pacthes/ patch"
   echo
@@ -109,6 +121,7 @@ function show_usage_then_exit() {
   echo "  -p --path [WP_ROOT]   The htdocs root for the WordPress site"
   echo "  -d [PATCHES_DIR]      Custom location of the patches directory"
   echo "  -c --component [REQUESTED_COMPONENT_SLUG]   Patch/unpatch a single component"
+  echo "  --format [OUTPUT_FORMAT]   Output format for 'list': $(echo ${VALID_OUTPUT_FORMATS[@]} | sed 's/ /|/g')"
   echo "  COMMAND               $(echo ${VALID_COMMANDS[@]} | sed 's/ /|/g')"
   echo
 
@@ -126,12 +139,63 @@ function show_inline_error() {
 }
 
 ##
+# Show a banner/progress line. These go to stderr when we're emitting a
+# machine-readable format, so stdout stays clean enough to pipe.
+#
+function show_banner_line() {
+  local MESSAGE="${1}"
+
+  if [ "${OUTPUT_FORMAT}" == 'table' ]; then
+    echo "${MESSAGE}"
+  else
+    echo "${MESSAGE}" >&2
+  fi
+}
+
+##
+# Escape a string for embedding in a JSON document.
+#
+# Slugs and versions are already restricted to a JSON-safe character set before
+# they reach here (see list_repository_components), so in practice this only
+# matters for configured paths, which could in theory contain a quote.
+#
+function escape_json_string() {
+  local VALUE="${1}"
+
+  VALUE="${VALUE//\\/\\\\}"
+  VALUE="${VALUE//\"/\\\"}"
+
+  __="${VALUE}"
+}
+
+##
+# Turn a byte count into something human-sized, without depending on numfmt.
+#
+function format_bytes_as_human() {
+  local BYTES="${1}"
+  local WHOLE=
+  local TENTHS=
+
+  if [ "${BYTES}" -ge 1073741824 ]; then
+    WHOLE=$((BYTES / 1073741824))
+    TENTHS=$(((BYTES % 1073741824) * 10 / 1073741824))
+    __="${WHOLE}.${TENTHS}G"
+  elif [ "${BYTES}" -ge 1048576 ]; then
+    WHOLE=$((BYTES / 1048576))
+    TENTHS=$(((BYTES % 1048576) * 10 / 1048576))
+    __="${WHOLE}.${TENTHS}M"
+  else
+    __="$((BYTES / 1024))K"
+  fi
+}
+
+##
 # Configure and create directories
 #
 function configure_and_create_directories() {
   # Are we running from repository, or from installed location?
   if [ -d "${STARTUP_DIR}"/wpatches ]; then
-    echo "Running from repository"
+    show_banner_line "Running from repository"
 
     # PATCHES_DIR might still need to be defined in /etc/wpatcher/conf so levae it empty for now.
     # PATCHES_DIR="${STARTUP_DIR}"/wpatches
@@ -169,6 +233,15 @@ function configure_and_create_directories() {
     if [ -z "${PATCHES_DIR}" ] && [ -d "${WORK_DIR}"/wpatches ]; then
       PATCHES_DIR="${WORK_DIR}"/wpatches
     fi
+  fi
+
+  # Normalise PATCHES_DIR the same way, whichever of the three sources it came
+  # from. A trailing slash from the config file is harmless everywhere it's
+  # used (each use appends its own "/"), but it made the reported paths
+  # inconsistent with the WORK_DIR-derived ones, and with -d, which realpath
+  # has already stripped. Same caveat as WORK_DIR above: assumes not "/".
+  if [ -n "${PATCHES_DIR}" ]; then
+    PATCHES_DIR="${PATCHES_DIR%/}"
   fi
 
   local REQUIRED_DIRS=("${REPOSITORY_DIR}" "${TEMP_DIR}" "${PATCHED_DIR}")
@@ -217,7 +290,7 @@ function fail_if_missing_required_variables() {
 function dump_required_variables() {
   for REQUIRED_VARIABLE_NAME in "${REQUIRED_VARIABLE_NAMES[@]}"; do
     REQUIRED_VARIABLE_VALUE=${!REQUIRED_VARIABLE_NAME}
-    echo "${REQUIRED_VARIABLE_NAME}: ${REQUIRED_VARIABLE_VALUE}"
+    show_banner_line "${REQUIRED_VARIABLE_NAME}: ${REQUIRED_VARIABLE_VALUE}"
   done
 }
 
@@ -400,6 +473,225 @@ function does_unpatched_component_exist_in_repository() {
   else
     __=0
   fi
+}
+
+##
+# List the components held in the local repository.
+#
+# Read-only: this never touches a WordPress site, so it works without -p and
+# without a valid WP installation. One row per slug+version, sorted by slug and
+# then by natural version order (so 9.4.2 sorts before 10.9.4).
+#
+# PATCH = a .patch file exists for that exact version.
+# BUILT = a patched package is already cached in PATCHED_DIR.
+#
+function list_repository_components() {
+  local COMPONENT_TYPE=
+  local COMPONENT_SLUG=
+  local COMPONENT_VERSION=
+  local PACKAGE_NAME=
+  local PACKAGE_NAMES=()
+  local WANTED_NAMES=()
+  local PACKAGE_FILE_NAMES=()
+  local PACKAGE_SIZES=()
+  local PACKAGE_BYTES=0
+  local PACKAGE_INDEX=0
+  local PATCH_FILE_NAME=
+  local HAS_PATCH=
+  local HAS_BUILD=
+  local ROWS=()
+  local JSON_ROWS=()
+  local JSON_INDEX=0
+  local JSON_SUFFIX=
+  local ROW=
+  local ROW_TYPE=
+  local ROW_SLUG=
+  local ROW_VERSION=
+  local ROW_SIZE=
+  local ROW_PATCH=
+  local ROW_BUILT=
+  local SLUGS_SEEN=()
+  local UNIQUE_SLUG_COUNT=0
+  local WIDEST_SLUG=4
+  local WIDEST_VERSION=7
+  local TOTAL_COUNT=0
+  local TOTAL_BYTES=0
+  local TOTAL_HUMAN=
+
+  if [ ! -d "${PATCHES_DIR}" ]; then
+    echo "Warning: patches directory not found, so PATCH will read 'no' for everything: ${PATCHES_DIR}" >&2
+  fi
+
+  if [ "${OUTPUT_FORMAT}" == 'csv' ]; then
+    echo 'type,slug,version,bytes,patch,built'
+  fi
+
+  for COMPONENT_TYPE in "${COMPONENT_TYPES[@]}"; do
+    # Only filter by type if the caller actually asked for one.
+    if [ ${IS_COMPONENT_TYPE_EXPLICIT} -eq 1 ] && [ "${REQUESTED_COMPONENT_TYPE}" != "${COMPONENT_TYPE}" ]; then
+      continue
+    fi
+
+    # readarray, not $(...) in an array literal: a package name containing a
+    # space would otherwise word-split into two bogus entries.
+    readarray -t PACKAGE_NAMES < <(ls -1 "${REPOSITORY_DIR}"/"${COMPONENT_TYPE}"/*.tgz 2> /dev/null | sed 's|.*/||; s|\.tgz$||' | sort -t',' -k1,1 -k2,2V)
+
+    if [ "${#PACKAGE_NAMES[@]}" -eq 0 ]; then
+      continue
+    fi
+
+    # Validate and filter BEFORE stat'ing. Packages are named
+    # "<slug>,<version>.tgz", and both parts come from WordPress so they're
+    # always plain. Anything else isn't a package we wrote - rejecting it here
+    # keeps every field safe to drop into CSV or JSON unquoted, and means the
+    # stat call below can't fail and desync from the list it's sized against.
+    WANTED_NAMES=()
+    for PACKAGE_NAME in "${PACKAGE_NAMES[@]}"; do
+      if [[ ! "${PACKAGE_NAME}" =~ ^[A-Za-z0-9._-]+,[A-Za-z0-9._-]+$ ]]; then
+        if [[ "${PACKAGE_NAME}" == *,* ]]; then
+          # Looks like a package but isn't one we can trust - always say so,
+          # otherwise it silently vanishes from the counts.
+          echo "Skipping package with unexpected characters in its name: ${PACKAGE_NAME}.tgz" >&2
+        elif [ ${IS_VERBOSE} -ne 0 ]; then
+          echo "Ignoring unrecognised package name: ${PACKAGE_NAME}.tgz" >&2
+        fi
+
+        continue
+      fi
+
+      if [ -n "${REQUESTED_COMPONENT_SLUG}" ] && [ "${REQUESTED_COMPONENT_SLUG}" != "${PACKAGE_NAME%%,*}" ]; then
+        continue
+      fi
+
+      WANTED_NAMES+=("${PACKAGE_NAME}")
+    done
+
+    if [ "${#WANTED_NAMES[@]}" -eq 0 ]; then
+      continue
+    fi
+
+    # Take all the sizes in one stat call rather than one per package.
+    PACKAGE_FILE_NAMES=()
+    for PACKAGE_NAME in "${WANTED_NAMES[@]}"; do
+      PACKAGE_FILE_NAMES+=("${REPOSITORY_DIR}/${COMPONENT_TYPE}/${PACKAGE_NAME}.tgz")
+    done
+    readarray -t PACKAGE_SIZES < <(stat --printf '%s\n' "${PACKAGE_FILE_NAMES[@]}" 2> /dev/null)
+
+    # Belt and braces: if a package disappeared between the listing and the
+    # stat, bail rather than report every size against the wrong package.
+    if [ "${#PACKAGE_SIZES[@]}" -ne "${#WANTED_NAMES[@]}" ]; then
+      echo "Failed to read package sizes in ${REPOSITORY_DIR}/${COMPONENT_TYPE} - did the repository change while listing?" >&2
+      return 1
+    fi
+
+    for ((PACKAGE_INDEX = 0; PACKAGE_INDEX < ${#WANTED_NAMES[@]}; PACKAGE_INDEX++)); do
+      PACKAGE_NAME="${WANTED_NAMES[${PACKAGE_INDEX}]}"
+
+      COMPONENT_SLUG="${PACKAGE_NAME%%,*}"
+      COMPONENT_VERSION="${PACKAGE_NAME#*,}"
+      PACKAGE_BYTES="${PACKAGE_SIZES[${PACKAGE_INDEX}]}"
+
+      PATCH_FILE_NAME="${PATCHES_DIR}"/${COMPONENT_TYPE}/${COMPONENT_SLUG}/${COMPONENT_SLUG}-${COMPONENT_VERSION}.patch
+      if [ -f "${PATCH_FILE_NAME}" ]; then
+        HAS_PATCH=1
+      else
+        HAS_PATCH=0
+      fi
+
+      does_patched_component_exist_in_repository "${COMPONENT_TYPE}" "${COMPONENT_SLUG}" "${COMPONENT_VERSION}"
+      HAS_BUILD=${__}
+
+      TOTAL_COUNT=$((TOTAL_COUNT + 1))
+      TOTAL_BYTES=$((TOTAL_BYTES + PACKAGE_BYTES))
+      SLUGS_SEEN+=("${COMPONENT_SLUG}")
+
+      if [ "${OUTPUT_FORMAT}" == 'csv' ]; then
+        echo "${COMPONENT_TYPE},${COMPONENT_SLUG},${COMPONENT_VERSION},${PACKAGE_BYTES},${HAS_PATCH},${HAS_BUILD}"
+      elif [ "${OUTPUT_FORMAT}" == 'json' ]; then
+        [ ${HAS_PATCH} -eq 1 ] && ROW_PATCH=true || ROW_PATCH=false
+        [ ${HAS_BUILD} -eq 1 ] && ROW_BUILT=true || ROW_BUILT=false
+
+        JSON_ROWS+=("    { \"type\": \"${COMPONENT_TYPE}\", \"slug\": \"${COMPONENT_SLUG}\", \"version\": \"${COMPONENT_VERSION}\", \"bytes\": ${PACKAGE_BYTES}, \"patch\": ${ROW_PATCH}, \"built\": ${ROW_BUILT} }")
+      else
+        # Buffer the rows so we can size the slug column to the widest one.
+        [ "${#COMPONENT_SLUG}" -gt ${WIDEST_SLUG} ] && WIDEST_SLUG="${#COMPONENT_SLUG}"
+        [ "${#COMPONENT_VERSION}" -gt ${WIDEST_VERSION} ] && WIDEST_VERSION="${#COMPONENT_VERSION}"
+
+        format_bytes_as_human "${PACKAGE_BYTES}"
+
+        [ ${HAS_PATCH} -eq 1 ] && ROW_PATCH=yes || ROW_PATCH=no
+        [ ${HAS_BUILD} -eq 1 ] && ROW_BUILT=yes || ROW_BUILT=no
+
+        ROWS+=("${COMPONENT_TYPE}"$'\t'"${COMPONENT_SLUG}"$'\t'"${COMPONENT_VERSION}"$'\t'"${__}"$'\t'"${ROW_PATCH}"$'\t'"${ROW_BUILT}")
+      fi
+    done
+  done
+
+  if [ ${TOTAL_COUNT} -gt 0 ]; then
+    UNIQUE_SLUG_COUNT=$(printf '%s\n' "${SLUGS_SEEN[@]}" | sort -u | wc -l)
+  fi
+
+  # JSON always emits a complete, parseable document - including when there's
+  # nothing to report - so callers can pipe it straight into jq unconditionally.
+  if [ "${OUTPUT_FORMAT}" == 'json' ]; then
+    escape_json_string "${REPOSITORY_DIR}"
+    local JSON_REPOSITORY_DIR="${__}"
+    escape_json_string "${PATCHES_DIR}"
+    local JSON_PATCHES_DIR="${__}"
+
+    echo '{'
+    echo "  \"wpatcher_version\": \"${STARTUP_VERSION}\","
+    echo "  \"repository_dir\": \"${JSON_REPOSITORY_DIR}\","
+    echo "  \"patches_dir\": \"${JSON_PATCHES_DIR}\","
+    echo "  \"totals\": { \"backups\": ${TOTAL_COUNT}, \"slugs\": ${UNIQUE_SLUG_COUNT}, \"bytes\": ${TOTAL_BYTES} },"
+
+    if [ "${#JSON_ROWS[@]}" -eq 0 ]; then
+      echo '  "components": []'
+    else
+      echo '  "components": ['
+      for ((JSON_INDEX = 0; JSON_INDEX < ${#JSON_ROWS[@]}; JSON_INDEX++)); do
+        # No trailing comma on the last element.
+        if [ ${JSON_INDEX} -eq $((${#JSON_ROWS[@]} - 1)) ]; then
+          JSON_SUFFIX=
+        else
+          JSON_SUFFIX=','
+        fi
+        echo "${JSON_ROWS[${JSON_INDEX}]}${JSON_SUFFIX}"
+      done
+      echo '  ]'
+    fi
+
+    echo '}'
+  fi
+
+  if [ ${TOTAL_COUNT} -eq 0 ]; then
+    if [ -n "${REQUESTED_COMPONENT_SLUG}" ]; then
+      echo "Nothing in the local repository for component: ${REQUESTED_COMPONENT_SLUG}" >&2
+      return 1
+    fi
+
+    [ "${OUTPUT_FORMAT}" == 'table' ] && show_banner_line "The local repository is empty: ${REPOSITORY_DIR}"
+    return 0
+  fi
+
+  if [ "${OUTPUT_FORMAT}" == 'table' ]; then
+    printf '%-8s %-*s  %-*s %8s  %-5s  %s\n' \
+      'TYPE' ${WIDEST_SLUG} 'SLUG' ${WIDEST_VERSION} 'VERSION' 'SIZE' 'PATCH' 'BUILT'
+
+    for ROW in "${ROWS[@]}"; do
+      IFS=$'\t' read -r ROW_TYPE ROW_SLUG ROW_VERSION ROW_SIZE ROW_PATCH ROW_BUILT <<< "${ROW}"
+      printf '%-8s %-*s  %-*s %8s  %-5s  %s\n' \
+        "${ROW_TYPE}" ${WIDEST_SLUG} "${ROW_SLUG}" ${WIDEST_VERSION} "${ROW_VERSION}" "${ROW_SIZE}" "${ROW_PATCH}" "${ROW_BUILT}"
+    done
+
+    format_bytes_as_human "${TOTAL_BYTES}"
+    TOTAL_HUMAN="${__}"
+
+    echo
+    echo "${TOTAL_COUNT} backup$([ ${TOTAL_COUNT} -ne 1 ] && echo s), ${UNIQUE_SLUG_COUNT} slug$([ ${UNIQUE_SLUG_COUNT} -ne 1 ] && echo s), ${TOTAL_HUMAN}"
+  fi
+
+  return 0
 }
 
 ##
@@ -675,7 +967,18 @@ function parse_command_line() {
 
       -t | --type)
         REQUESTED_COMPONENT_TYPE="${2}"
+        IS_COMPONENT_TYPE_EXPLICIT=1
         shift 2
+        ;;
+
+      --format)
+        OUTPUT_FORMAT="${2}"
+        shift 2
+        ;;
+
+      --format=*)
+        OUTPUT_FORMAT="${1#*=}"
+        shift
         ;;
 
       -c | --component)
@@ -722,6 +1025,11 @@ function parse_command_line() {
     :
   fi
 
+  if [[ ! " ${VALID_OUTPUT_FORMATS[*]} " =~ [[:space:]]"${OUTPUT_FORMAT}"[[:space:]] ]]; then
+    echo "OUTPUT_FORMAT invalid: ${OUTPUT_FORMAT}" >&2
+    show_usage_then_exit
+  fi
+
   if [ "${COMMAND}" == 'dump' ]; then
     IS_VERBOSE=1
   fi
@@ -731,11 +1039,13 @@ function parse_command_line() {
 #   COMMAND='patch'
 # fi
 
-echo "WPatcher :: ${STARTUP_VERSION} :: ${GIT_REPOS}"
-
 load_configuration
 
 parse_command_line "${@}"
+
+# Deferred until the command line is parsed, so we know whether stdout has to
+# stay clean for a machine-readable format.
+show_banner_line "WPatcher :: ${STARTUP_VERSION} :: ${GIT_REPOS}"
 
 fail_if_missing_required_binaries
 
@@ -743,7 +1053,7 @@ configure_and_create_directories
 
 fail_if_missing_required_variables
 
-if [ "${REQUESTED_COMPONENT_TYPE}" == 'themes' ] && [ ${IS_THEMES_SUPPORT_ENABLAED} -ne 1 ]; then
+if [ "${COMMAND}" != 'list' ] && [ "${REQUESTED_COMPONENT_TYPE}" == 'themes' ] && [ ${IS_THEMES_SUPPORT_ENABLAED} -ne 1 ]; then
   echo "Themes support is not implemented yet" >&2
   exit 1
 fi
@@ -756,6 +1066,13 @@ fi
 if [ "${COMMAND}" == 'update' ]; then
   update_from_upstream
   exit 0
+fi
+
+# "list" only reads the local repository, so it must run before everything
+# below here, which all assumes a valid site and an installed patch collection.
+if [ "${COMMAND}" == 'list' ]; then
+  list_repository_components
+  exit ${?}
 fi
 
 if [ ! -d "${PATCHES_DIR}" ]; then
@@ -808,7 +1125,7 @@ for COMPONENT_META in "${ACTIVE_COMPONENTS[@]}"; do
 
   if [ "${REQUESTED_COMPONENT_TYPE}" != "${COMPONENT_TYPE}" ]; then
     :
-  elif [ -n "${REQUESTED_COMPONENT_SLUG}" ] && [ "${REQUESTED_COMPONENT_SLUG}" != "${PLUGIN_SLUG}" ]; then
+  elif [ -n "${REQUESTED_COMPONENT_SLUG}" ] && [ "${REQUESTED_COMPONENT_SLUG}" != "${COMPONENT_SLUG}" ]; then
     :
   else
     [ ${IS_VERBOSE} -ne 0 ] && echo -n "PATCH: ${PATCH_FILE_NAME} ... "
