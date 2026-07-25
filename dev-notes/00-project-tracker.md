@@ -1,7 +1,7 @@
 # Project Tracker
 
 **Version:** 0.0.0 (pre-alpha — design phase)
-**Last Updated:** 2026-05-28
+**Last Updated:** 2026-07-25
 **Current Phase:** M0 — Designing `wpatch-ng` (remote-repo architecture). Nothing built yet.
 **Overall Progress:** ~5% (decisions locked, architecture drafting)
 
@@ -16,9 +16,13 @@ Two tools live in this repo:
 
 `wpatch.sh` stays untouched and keeps running the fleet during `wpatch-ng` development; sites migrate over when the new tool is proven.
 
+`wpatch.sh` work is tracked separately under the **S-series** milestones below; `wpatch-ng` work stays on the **M-series**. The two do not block each other.
+
 **Language:** Go (single static binary, easy to push to ~10 servers, robust JSON/HTTP/state). _May reconsider PHP or Bash mid-build if Go proves a poor fit._
 
 **Detailed design:** [`10-wpatch-ng-architecture.md`](10-wpatch-ng-architecture.md)
+
+**Snagging list:** [`20-snagging-list.md`](20-snagging-list.md) — small known rough edges we've consciously left, with the reasoning. Correctness-affecting items go in Technical Debt below instead.
 
 ---
 
@@ -49,10 +53,45 @@ Remaining open (low-stakes): subscriber config format (defaulting TOML); determi
 - [x] Drafted the architecture doc and locked marker placement, revert model, pristine source, and themes scope (2026-05-28).
 - [x] Chose architecture direction: new `wpatch-ng`, Go, pluggable transport, state-in-PHP (2026-05-28).
 - [x] Slimmed README + added audience docs (shipped on `main`, commit `3097a44`).
+- [x] Fixed the `-c` single-component filter, broken since v0.1.0 (2026-07-25).
+- [x] **S1** — `list` command + `--format=csv`, shipped as `wpatch.sh` 1.4.0 (2026-07-25). Uncommitted at time of writing.
 
 ---
 
-## Milestones
+## Milestones — stable track (`wpatch.sh`)
+
+### S1 — Repository visibility (`list` command) ✅ (complete, uncommitted — 2026-07-25)
+Read-only insight into what the local repository is holding. No change to patch/unpatch/backup behaviour. Exit criteria: `list` works with no site and no `PATCHES_DIR`, counts reconcile against the filesystem, and docs/changelog are updated.
+
+- [x] Fix `-c` component filter (`wpatch.sh:811` compared against unassigned `PLUGIN_SLUG`)
+- [x] Register `list` in `VALID_COMMANDS`; add `OUTPUT_FORMAT` + `VALID_OUTPUT_FORMATS` globals
+- [x] Add `IS_COMPONENT_TYPE_EXPLICIT` so `list` can iterate both types unless `-t` is given
+- [x] Parse `--format=csv` / `--format csv`; validate against `VALID_OUTPUT_FORMATS`
+- [x] Route the two banner lines through `show_banner_line()` (stderr when csv)
+- [x] Implement `list_repository_components()` + `format_bytes_as_human()`
+- [x] Dispatch `list` above the `PATCHES_DIR` check and `fail_if_bad_wp_root`
+- [x] Exit `1` when `-c <slug>` matches nothing; exit `0` on a genuinely empty store
+- [x] Usage text, `docs/commands-reference.md`, `docs/fleet-operations.md`, `README.md`
+- [x] Bump to `1.4.0` in the `# Version:` header + `CHANGELOG.md`
+- [x] Verify against the real 136-backup work dir (136/136 rows, 64/64 slugs reconciled)
+- [x] Add `--format=json` (single document with totals + components; booleans not 1/0)
+- [x] Validate package filenames against `[A-Za-z0-9._-]` before reporting them
+- [x] Normalise the trailing slash on `PATCHES_DIR` (config was the only unnormalised source)
+
+Notes from the build:
+- `PATCH` tracks the **resolved** `PATCHES_DIR`, not the repo's `wpatches/`. On the main box that's `/opt/headwall-isp/wpatches/`, which only carries recent versions — so most older backups correctly read `PATCH=no`.
+- Repository is bigger than expected: **136 backups / 64 slugs / 899 MB**, with WooCommerce alone at 48 versions and 732 MB. Strengthens the case for S2 pruning.
+- **JSON is safe without a hand-rolled escaper because the input is constrained.** `bytes` is an integer from `stat`, `patch`/`built` are booleans, `type` is a literal, and `slug`/`version` are validated against `[A-Za-z0-9._-]` (verified: all 136 real entries use only `[a-z0-9.-]`). `escape_json_string()` exists but only guards the two configured paths. Keep the validation if the JSON output is ever extended — it's what makes the emitter correct by construction rather than by luck.
+- **Path normalisation now happens in one place** (`configure_and_create_directories`). `WORK_DIR` was already stripped there, and `-d` arrives pre-normalised via `realpath`; the config file was the only source that carried a trailing slash through. `WP_ROOT` is deliberately left alone — a trailing slash there is equally harmless, and the site-facing paths aren't worth touching on a 300+ site tool for cosmetics. Revisit only if it ever surfaces in output.
+- **Bug caught by the hostile-filename fixture:** the directory scan used `NAMES=($(ls ...))`, so a package name containing a space word-split into two entries. `stat` then failed on both and returned fewer sizes than names, silently desyncing the parallel size array — every subsequent row reported another package's size (a 3 MB package showed as 1 KB). Now uses `readarray`, validates before stat'ing, and hard-fails on a length mismatch. Worth remembering that this class of bug is invisible on clean data: the real repository never triggered it.
+
+### S2 — Candidates (not started)
+- Prune old backups/built packages (900 MB + 849 MB and growing; WooCommerce alone has 48 versions).
+- Consistent bad-slug handling: `-c <typo>` on `patch`/`unpatch`/`backup` still exits `0` with "There are no components to ..." — `list` fixes this only for itself.
+
+---
+
+## Milestones — `wpatch-ng`
 
 ### M0 — Architecture & schema design 🔧 (in progress)
 Design only, no code. Exit criteria: confirmed revert model, frozen **marker/state schema**, frozen **repo manifest schema**, defined **transport interface** and **subscriber config** shape. Captured in [`10-wpatch-ng-architecture.md`](10-wpatch-ng-architecture.md).
@@ -100,6 +139,8 @@ Prove the new codebase can do what `wpatch.sh` already does, before adding new c
 
 - **`wpatch.sh` dead code** — unconditional `exit 0` in `update_from_upstream` (`wpatch.sh:616`) leaves code after it unreachable. Left in deliberately (diagnostic remnant); revisit only if `wpatch.sh` is ever refactored. Do not touch during `wpatch-ng` work.
 - **Themes unsupported** in `wpatch.sh` (`IS_THEMES_SUPPORT_ENABLAED=0`). Decide whether `wpatch-ng` supports themes from the start (same component model) or defers.
+- **Silent no-op on a bad `-c` slug** — `patch`/`unpatch`/`backup` print the generic "There are no components to ..." and exit `0` when the requested slug doesn't match an active component. `list` (S1) exits `1` in that case; the site-facing commands should be brought into line (S2).
+- **Repository growth is unmanaged** — `repos/` and `patched/` only ever grow (1.7 GB on the main box). `list` (S1) makes this visible; pruning is S2.
 - **Migration**: sites already patched by `wpatch.sh` carry plain `// START : wpatcher` markers. `wpatch-ng` needs to recognise these (treat as "patched by legacy tool, provenance unknown") so it doesn't double-apply.
 
 ---
