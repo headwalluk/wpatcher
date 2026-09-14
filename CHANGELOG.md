@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ...
 
+## [1.5.0] - 2026-09-14
+
+Added `-V | --version`, which prints `WPatcher <version>` and exits `0`. It's handled while the command line is parsed, so it needs no command, no site, and no work directory — handy for checking which version each server in a fleet is running:
+
+```bash
+wpatch --version
+```
+
 ## [1.4.0] - 2026-07-25
 
 Added a `list` command that shows what's held in the local repository, so you can see your backups without picking through `WORK_DIR` by hand. It's read-only and needs no site, so it runs fine without `-p` and without a valid WordPress installation.

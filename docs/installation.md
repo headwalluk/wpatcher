@@ -36,6 +36,7 @@ The move into `/usr/local/bin` uses `sudo`, so you'll be prompted for your passw
 Confirm it works:
 
 ```bash
+wpatch --version
 wpatch -h
 ```
 

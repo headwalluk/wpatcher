@@ -3,8 +3,8 @@
 ##
 # wpatch.sh
 #
-# Version: 1.4.0
-# Date: 2026-07-25
+# Version: 1.5.0
+# Date: 2026-09-14
 # Project URI: https://github.com/headwalluk/wpatcher
 # Author: Paul Faulkner
 # Author URI: https://headwall-hosting.com/
@@ -94,7 +94,7 @@ fi
 function show_usage_then_exit() {
   local BIN=$(basename "${0}")
   # echo "Usage: ${BIN} [-vh] [-p <WP_ROOT>] [-t <plugins|themes>] [-c <COMPONENT_SLUG>] <COMMAND>"
-  echo "Usage: ${BIN} [-vhf] [-p <WP_ROOT>] [-d <PATCHES_DIR>] [-c <COMPONENT_SLUG>] <COMMAND>"
+  echo "Usage: ${BIN} [-vhfmV] [-p <WP_ROOT>] [-d <PATCHES_DIR>] [-c <COMPONENT_SLUG>] <COMMAND>"
   echo
 
   echo "If WP_ROOT is not set, it's assumed WordPress is installed in the current directory."
@@ -115,6 +115,7 @@ function show_usage_then_exit() {
 
   echo " Parameters:"
   echo "  -h --help             Show this page"
+  echo "  -V --version          Show the WPatcher version and exit"
   echo "  -v --verbose          Show more output"
   echo "  -f --force            Force re-patching of an already-patched component"
   echo "  -m --maintenance      Switch the site into maintenance mode before patching"
@@ -937,6 +938,11 @@ function parse_command_line() {
     case "${1}" in
       -h | --help)
         show_usage_then_exit
+        ;;
+
+      -V | --version)
+        echo "WPatcher ${STARTUP_VERSION}"
+        exit 0
         ;;
 
       -v | --verbose)

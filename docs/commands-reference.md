@@ -1,7 +1,7 @@
 # Commands reference
 
 ```
-wpatch [-vhfm] [-p <WP_ROOT>] [-d <PATCHES_DIR>] [-c <COMPONENT_SLUG>] <COMMAND>
+wpatch [-vhfmV] [-p <WP_ROOT>] [-d <PATCHES_DIR>] [-c <COMPONENT_SLUG>] <COMMAND>
 ```
 
 If `WP_ROOT` is not given, WPatcher assumes WordPress is installed in the current directory. `WP_ROOT` is the document root — the folder containing `wp-config.php`.
@@ -24,6 +24,7 @@ Only one command may be given per invocation.
 | Flag | Long form | Meaning |
 |------|-----------|---------|
 | `-h` | `--help` | Show usage and exit. |
+| `-V` | `--version` | Print `WPatcher <version>` and exit `0`. Needs no command, site or work directory. |
 | `-v` | `--verbose` | More output, including the resolved patch list. |
 | `-f` | `--force` | Re-patch a component even if it's already patched. |
 | `-m` | `--maintenance` | Put the site into WordPress maintenance mode before patching, and take it out afterwards. |

@@ -1,7 +1,7 @@
 # WPatcher
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.4.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.5.0-green.svg)](CHANGELOG.md)
 [![Made with Bash](https://img.shields.io/badge/made%20with-Bash-1f425f.svg)](wpatch.sh)
 [![Requires wp-cli](https://img.shields.io/badge/requires-wp--cli-blueviolet.svg)](https://wp-cli.org/)
 
