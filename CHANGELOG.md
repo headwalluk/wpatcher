@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ...
 
+## [1.5.2] - 2026-11-02
+
+Documentation only; the tool's behaviour is unchanged.
+
+[Authoring patches](docs/authoring-patches.md) now states that the patched badge's `plugin_row_meta` filter must keep the `PHP_INT_MAX` priority. At the default priority of `10`, a plugin that registers later and rebuilds `$links` drops the badge, and the plugin looks unpatched.
+
 ## [1.5.1] - 2026-11-02
 
 Documentation only; the tool's behaviour is unchanged.

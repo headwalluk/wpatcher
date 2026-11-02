@@ -76,6 +76,7 @@ add_filter(
 - Replace `<slug>/<main-file>.php` with the plugin's basename as WordPress reports it (for example `woocommerce/woocommerce.php`). The badge only appears on that row.
 - Replace `YYYY-MM-DD` with the date the patch was authored.
 - Keep the `$links['wpatcher']` key and the `// START : wpatcher` / `// END : wpatcher` lines exactly as shown.
+- Keep the `PHP_INT_MAX` priority. The filter must run after every other `plugin_row_meta` callback: at the default priority of `10`, any plugin that registers later and rebuilds or truncates `$links` drops the badge, and the plugin looks unpatched.
 - The tick is the HTML entity `&#10003;`, so the patch file stays plain ASCII.
 
 The badge renders as a small green pill reading **✓ Patched YYYY-MM-DD**, with the explanation in a tooltip. The colours come from the WordPress admin palette's success greens.
