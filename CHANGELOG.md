@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ...
 
+## [1.5.1] - 2026-11-02
+
+Documentation only; the tool's behaviour is unchanged.
+
+[Authoring patches](docs/authoring-patches.md) now documents the patched badge, the block every plugin patch appends to the plugin's main file. New patches use a smaller green `✓ Patched YYYY-MM-DD` badge with an explanatory tooltip, replacing the bold purple `PATCHED : YYYY-MM-DD` one. Existing patches keep the purple badge, and both are detected the same way.
+
+Corrected the description of the `// START : wpatcher` marker. Detection only sees a marker that starts the line, in a PHP file directly inside the component directory. The previous example placed an indented marker in a subdirectory file, which detection would not have found.
+
 ## [1.5.0] - 2026-09-14
 
 Added `-V | --version`, which prints `WPatcher <version>` and exits `0`. It's handled while the command line is parsed, so it needs no command, no site, and no work directory — handy for checking which version each server in a fleet is running:
